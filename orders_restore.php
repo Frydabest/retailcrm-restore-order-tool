@@ -9,7 +9,6 @@ define("CACHE_FILE", "cache.log");
 
 $csvData = file_get_contents("orders.csv");
 $csvData = explode("\n", $csvData);
-$skipMode = false;
 
 $client = new GuzzleHttp\Client([
     'verify' => false,
@@ -17,20 +16,16 @@ $client = new GuzzleHttp\Client([
 
 
 if (file_exists(CACHE_FILE)) {
-    $lastOrderId = trim(file_get_contents(CACHE_FILE));
-    $skipMode = !empty($lastOrderId);
+    $lastProcessedOrderId = (int) file_get_contents(CACHE_FILE);
+    $last_index = array_search($lastProcessedOrderId, $csvData);
+
+    if ($last_index !== false) {
+        $csvData = array_slice($csvData, $last_index + 1);
+    }
 }
 
+
 foreach ($csvData as $orderId) {
-    $orderId = trim($orderId);
-
-    if ($skipMode) {
-        if ($orderId === $lastProcessedOrder) {
-            $skipMode = false;
-        }
-        continue;
-    }
-
     $sinceId = 0;
     $items = [];
     $deliveryAddress = [];
@@ -50,9 +45,7 @@ foreach ($csvData as $orderId) {
         $response = json_decode($response->getBody(), true);
 
         foreach ($response["history"] as $historyElement) {
-            
             if (!empty($historyElement["created"])) {
-
                 if (!empty($historyElement["order"]["items"])) {
                     $items = $historyElement["order"]["items"];
                 }
@@ -107,8 +100,8 @@ foreach ($csvData as $orderId) {
 
                 unset($historyElement["order"]["customer"]);
                 unset($historyElement["order"]["contact"]);
-                unset($historyElement["id"]);
                 unset($historyElement["source"]);
+                unset($historyElement["id"]);
 
                 $totalDiscount = 0;
                 foreach ($historyElement["order"]["items"] as $item) {
@@ -120,8 +113,6 @@ foreach ($csvData as $orderId) {
                 if ($totalDiscount > 0) {
                     $historyElement["order"]["discountManualAmount"] = $totalDiscount;
                 }
-
-                $originalOrderNumber = $historyElement["order"]["number"] ?? "неизвестно";
 
                 $orderData = $historyElement["order"];
                 $site = $orderData["site"];
@@ -143,23 +134,19 @@ foreach ($csvData as $orderId) {
                         ]
                     );
 
+                    $originalOrderNumber = $orderData["number"];
                     $apiResponseData = json_decode($apiResponse->getBody(), true);
                     if (isset($apiResponseData["success"]) && $apiResponseData["success"]) {
-                        $newOrderId = $apiResponseData["id"] ?? "неизвестно";
-                        $newOrderNumber = $apiResponseData["order"]["number"] ?? "неизвестно";
-
-                        echo "Заказ успешно создан. ID: $newOrderId, Номер: $newOrderNumber\n";
+                        echo "Заказ успешно создан. ID: " . $apiResponseData["id"] . ", Номер: " . $apiResponseData["order"]["number"] . "\n";
                         file_put_contents(CACHE_FILE, $orderId);
                     } else {
-                        $errorMsg = $apiResponseData["errorMsg"] ?? "Неизвестная ошибка";
-                        echo "Ошибка при создании заказа: $errorMsg\n";
-                        logMessage("Ошибка при восстановлении заказа $originalOrderNumber: $errorMsg");
+                        logMessage("Ошибка при восстановлении заказа $originalOrderNumber: $errorMsg" . ($apiResponseData["errorMsg"] ?? "Неизвестная ошибка"));
+                        exit(-1);
                     }
                 } catch (Exception $e) {
                     $errorMsg = $e->getMessage();
-                    echo "Исключение при создании заказа: $errorMsg\n";
                     logMessage("Исключение при восстановлении заказа $originalOrderNumber: $errorMsg");
-                    exit();
+                    exit(-1);
                 }
             }
         }
@@ -196,4 +183,3 @@ function logMessage(string $message): void
     $logEntry = "[$timestamp] $message\n";
     file_put_contents(LOG_FILE, $logEntry, FILE_APPEND);
 }
-
