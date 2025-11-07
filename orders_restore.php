@@ -24,7 +24,6 @@ if (file_exists(CACHE_FILE)) {
 foreach ($csvData as $orderId) {
     $orderId = trim($orderId);
 
-    // Skipping orders until the last processed one
     if ($skipMode) {
         if ($orderId === $lastProcessedOrder) {
             $skipMode = false;
@@ -51,7 +50,7 @@ foreach ($csvData as $orderId) {
         $response = json_decode($response->getBody(), true);
 
         foreach ($response["history"] as $historyElement) {
-            // Saving full details of items or address ("Created" history entry)
+            
             if (!empty($historyElement["created"])) {
 
                 if (!empty($historyElement["order"]["items"])) {
@@ -63,7 +62,6 @@ foreach ($csvData as $orderId) {
                 }
             }
 
-            // Processing product changes
             if (!empty($historyElement["order"]["items"])) {
                 $items = $historyElement["order"]["items"];
             }
@@ -103,7 +101,6 @@ foreach ($csvData as $orderId) {
             if (!empty($historyElement["deleted"])) {
                 $historyElement["order"]["items"] = $items;
 
-                // Restoring address changes
                 if (!empty($deliveryAddress) && !empty($historyElement["order"]["delivery"]["address"])) {
                     $historyElement["order"]["delivery"]["address"] = $deliveryAddress;
                 }
@@ -113,7 +110,6 @@ foreach ($csvData as $orderId) {
                 unset($historyElement["id"]);
                 unset($historyElement["source"]);
 
-                // Calculating the total discount of products
                 $totalDiscount = 0;
                 foreach ($historyElement["order"]["items"] as $item) {
                     if (!empty($item["discountTotal"])) {
@@ -121,19 +117,16 @@ foreach ($csvData as $orderId) {
                     }
                 }
 
-                // Adding field "discountManualAmount" in the order
                 if ($totalDiscount > 0) {
                     $historyElement["order"]["discountManualAmount"] = $totalDiscount;
                 }
 
                 $originalOrderNumber = $historyElement["order"]["number"] ?? "неизвестно";
 
-                // Taking order's data & "site" from order
                 $orderData = $historyElement["order"];
                 $site = $orderData["site"];
                 unset($orderData["site"]);
 
-                // Creating order via API
                 try {
                     $apiResponse = $client->request(
                         'POST',
@@ -203,3 +196,4 @@ function logMessage(string $message): void
     $logEntry = "[$timestamp] $message\n";
     file_put_contents(LOG_FILE, $logEntry, FILE_APPEND);
 }
+
